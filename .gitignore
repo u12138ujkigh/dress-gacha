@@ -1,0 +1,37 @@
+# ---- 旧浏览器 profile（Edge --app 时代残留，现用 data/webview-profile）----
+.edge-dsh/
+.edge-profile/
+
+# ---- 运行时数据：日志、pid、缓存、生成的图片、WebView 用户数据 ----
+# 注意：这些文件不被 git 跟踪，但绝不能删除 —— comfyui_models.json 是模型秒显缓存，
+# webview-profile 存着卡片/设置的 localStorage，删了用户数据会丢。
+data/
+*.log
+*.log.err
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 调试 / 一次性脚本与产物（历次排查留下，非运行所需）----
+_e2e_*.py
+_ui.py
+cdp.py
+_final*.png
+_shots/
+_*.txt
+data/_*
+
+# ---- 备份 ----
+*.bak
+*.old
+*.orig
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

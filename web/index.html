@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>装扮抽卡 · DRESS GACHA</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- header 在 grid 内：只占左列第一行；右列（结果）跨两行，顶到窗口上缘 -->
+  <main class="layout">
+
+  <header class="top">
+    <div class="top-left">
+      <button class="quit-btn" id="btnQuit" type="button" title="退出程序并关闭标签页">退出</button>
+      <nav class="mode-switch" id="modeSwitch">
+        <button class="mode-btn active" data-mode="lexicon">词库抽卡</button>
+        <button class="mode-btn" data-mode="api">API 设计</button>
+      </nav>
+    </div>
+    <!-- API 设计档位：压缩成 chips，常驻标题栏左侧，不超过中线。
+         词库模式下隐藏，由 app.js 在切换模式时控制。 -->
+    <div class="tiers" id="apiTiers" style="display:none"></div>
+  </header>
+
+    <!-- ======================= 设置区（两栏） ======================= -->
+    <section class="panel">
+
+      <!-- ---------- 词库模式 ---------- -->
+      <div id="lexiconControls" class="ctl"><div class="ctl2">
+        <!-- 上排两格：强度档位 | 抽卡参数（同行并排，右侧不留死区） -->
+        <div class="cell">
+          <label>强度档位</label>
+          <div class="tiers" id="tiers"></div>
+          <p class="hint" id="tierDesc"></p>
+        </div>
+
+        <div class="cell">
+          <label>抽卡参数</label>
+          <div class="row"><span class="k">数量</span><input type="number" id="count" value="5" min="1" max="50"></div>
+          <div class="row"><span class="k">视角</span>
+            <select id="view">
+              <option value="random">随机</option>
+              <option value="front">正面</option>
+              <option value="back">背面</option>
+              <option value="three_quarter">3/4侧</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">背景</span>
+            <select id="backdrop">
+              <option value="studio">棚拍</option>
+              <option value="real">实景</option>
+              <option value="random">随机</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">尺寸</span>
+            <select id="size">
+              <option value="832x1216">832×1216</option>
+              <option value="720x1080">720×1080</option>
+              <option value="1024x1024">1024×1024</option>
+              <option value="1216x832">1216×832</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">种子</span><input type="number" id="seed" placeholder="随机"></div>
+        </div>
+
+        <!-- 下排整行：服装分类树（横向铺满，分类双列排布） -->
+        <div class="cell span2 grow">
+          <label>服装 <span class="muted" id="styleCount"></span></label>
+          <div class="tree" id="styles"></div>
+        </div>
+
+        <div class="cell full grp-wide">
+          <div class="actions">
+            <button class="btn primary" id="btnDraw">抽提示词</button>
+            <button class="btn ghost" id="btnRender">抽并出图</button>
+          </div>
+          <div class="progress" id="progress" hidden>
+            <div class="bar"><i id="barFill"></i></div>
+            <span id="progressText">0 / 0</span>
+          </div>
+          <div class="stats" id="stats"></div>
+        </div>
+      </div></div>
+
+      <!-- ---------- API 模式 ---------- -->
+      <div id="apiControls" class="ctl" style="display:none"><div class="ctl1">
+
+      <section class="grp">
+        <h3 class="grp-title">模型 · 设计档位</h3>
+        <div class="selectrow">
+          <select id="apiModel"></select>
+          <select id="thinkLevel" title="思考强度：关闭=速度优先（默认）；开启=模型先思考再写词，更慢但通常更守格式（本地模型思考明显变慢）">
+            <option value="off">思考：关闭（速度优先）</option>
+            <option value="on">思考：开启（更慢更稳）</option>
+          </select>
+          <button class="mini" id="btnProbe">探测</button>
+          <button class="mini" id="btnUnloadOllama" title="把本地 Ollama 已加载的模型从显存卸载（8G 显存被 ComfyUI 占用时用）">卸载本地模型</button>
+        </div>
+        <p class="hint tight modelHint" id="modelHint"></p>
+        <div class="grp-foot">
+          <p class="hint tight" id="apiTierDesc"></p>
+          <button class="mini" id="btnViewMethod">查看 / 编辑设计方法</button>
+        </div>
+      </section>
+
+      <section class="grp">
+        <h3 class="grp-title">构图</h3>
+        <div class="selgrid">
+          <div class="row"><span class="k">构图</span>
+            <select id="apiComposition">
+              <option value="headshot">大头照</option>
+              <option value="half_body">半身照</option>
+              <option value="full_body" selected>全身照</option>
+              <option value="front_back">正反全身照</option>
+              <option value="headshot_plus_front_back">横向大头+正反</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">详细度</span>
+            <select id="apiDetail">
+              <option value="simple">简约</option>
+              <option value="normal" selected>普通</option>
+              <option value="ornate">繁华</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">动作</span>
+            <select id="apiAction">
+              <option value="static" selected>静态站姿</option>
+              <option value="natural">自然动作</option>
+            </select>
+          </div>
+          <div class="row"><span class="k">语言</span>
+            <select id="apiLang">
+              <option value="zh" selected>中文</option>
+              <option value="en">英文</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="grp grp-wide">
+        <h3 class="grp-title">画风 · 人物风格</h3>
+        <div class="duo">
+          <div class="duo-cell">
+            <label class="mt0">画风 <span class="muted" id="vstyleCount">可叠加</span></label>
+            <div class="tree" id="vstyleTree"></div>
+          </div>
+          <div class="duo-cell">
+            <label class="mt0">人物风格 <span class="muted" id="cstyleCount">可叠加</span></label>
+            <div class="tree" id="cstyleTree"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grp">
+        <h3 class="grp-title">出图
+          <span class="render-tabs" id="renderTabs">
+            <button type="button" class="rtab active" data-rp="normal">常规</button>
+            <button type="button" class="rtab" data-rp="head">大头</button>
+          </span>
+        </h3>
+        <div class="render-panes">
+        <div class="render-pane" data-rp-pane="normal">
+          <p class="render-pane-cap">常规出图<span class="rp-tag">构图版用</span></p>
+          <div class="selgrid">
+            <div class="row"><span class="k">底模</span><select id="apiBaseModel"></select></div>
+            <div class="row"><span class="k">比例</span>
+              <select id="apiAspect">
+                <option value="1:1">1:1 方</option>
+                <option value="3:4">3:4 竖</option>
+                <option value="2:3" selected>2:3 竖</option>
+                <option value="9:16">9:16 竖</option>
+                <option value="4:3">4:3 横</option>
+                <option value="3:2">3:2 横</option>
+                <option value="16:9">16:9 横</option>
+              </select>
+            </div>
+            <div class="row"><span class="k">像素</span>
+              <select id="apiMegapixels">
+                <option value="0.5">0.5 MP</option>
+                <option value="1" selected>1.0 MP</option>
+                <option value="1.5">1.5 MP</option>
+                <option value="2">2.0 MP</option>
+                <option value="3">3.0 MP</option>
+                <option value="4">4.0 MP</option>
+              </select>
+            </div>
+            <div class="row"><span class="k">放大</span>
+              <select id="apiSeedvr2">
+                <option value="false">关闭</option>
+                <option value="true">SeedVR2</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint tight" id="sizePreview">—</p>
+        </div>
+        <div class="render-pane" data-rp-pane="head">
+          <p class="render-pane-cap">大头出图<span class="rp-tag">出大头图用</span></p>
+          <div class="selgrid">
+            <div class="row"><span class="k">底模</span><select id="headApiBaseModel"></select></div>
+            <div class="row"><span class="k">比例</span>
+              <select id="headApiAspect">
+                <option value="1:1">1:1 方</option>
+                <option value="3:4">3:4 竖</option>
+                <option value="2:3" selected>2:3 竖</option>
+                <option value="9:16">9:16 竖</option>
+                <option value="4:3">4:3 横</option>
+                <option value="3:2">3:2 横</option>
+                <option value="16:9">16:9 横</option>
+              </select>
+            </div>
+            <div class="row"><span class="k">像素</span>
+              <select id="headApiMegapixels">
+                <option value="0.5">0.5 MP</option>
+                <option value="1">1.0 MP</option>
+                <option value="1.5">1.5 MP</option>
+                <option value="2" selected>2.0 MP</option>
+                <option value="3">3.0 MP</option>
+                <option value="4">4.0 MP</option>
+              </select>
+            </div>
+            <div class="row"><span class="k">放大</span>
+              <select id="headApiSeedvr2">
+                <option value="false">关闭</option>
+                <option value="true">SeedVR2</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint tight" id="headSizePreview">—</p>
+          <p class="hint tight">这套参数用于所有「出大头图」；构图下拉里选「大头照」仍用常规参数。</p>
+        </div>
+        </div>
+      </section>
+
+      <div class="pair">
+        <section class="grp grp-grow">
+          <h3 class="grp-title">服装 <span class="muted">多选 = 随机范围</span></h3>
+          <div class="tree" id="apiStyles"></div>
+        </section>
+
+        <section class="grp grp-grow">
+          <h3 class="grp-title">LoRA <span class="muted" id="loraCount">未选</span></h3>
+          <div class="lorapick">
+            <input type="text" id="loraSearch" placeholder="搜索 LoRA…" autocomplete="off">
+            <div class="loradrop" id="loraDrop" hidden></div>
+          </div>
+          <div class="lora-triggers">
+            <input type="text" id="loraTriggers" placeholder="触发词，逗号分隔，加在提示词末尾…" autocomplete="off">
+          </div>
+          <div class="lorabox" id="loraList">
+            <p class="lora-empty">搜索并点选，可叠加。</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="grp">
+        <h3 class="grp-title">需求 · 批量</h3>
+        <div class="req-batch">
+          <textarea id="apiBrief" rows="2" placeholder="例：穿白色缎面一字肩礼服的东方女性，棚拍，安静气质"></textarea>
+          <div class="batch-ctl">
+            <select id="apiSystemPrompt" title="系统提示词模板（可留空）">
+              <option value="">不使用模板</option>
+            </select>
+            <div class="batch-actions">
+              <input type="number" id="apiBatch" value="5" min="1" max="20" title="批量数量">
+              <button class="btn ghost sm" id="btnApiBatchWrite">批量写词</button>
+              <button class="btn ghost sm" id="btnApiBatchRender">批量出图</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grp" id="samplingGroup">
+        <h3 class="grp-title">
+          <button class="grp-toggle" id="btnToggleSampling" aria-expanded="false">采样参数</button>
+          <span class="muted" id="samplingHint">工作流默认</span>
+        </h3>
+        <div class="sampling-body" id="samplingBody" hidden>
+          <div class="selgrid">
+            <div class="row"><span class="k">步数</span>
+              <input type="number" id="apiSteps" value="0" min="0" max="200" step="1" placeholder="默认 34">
+            </div>
+            <div class="row"><span class="k">CFG</span>
+              <input type="number" id="apiCfg" value="0" min="0" max="50" step="0.1" placeholder="默认 3">
+            </div>
+            <div class="row"><span class="k">采样器</span>
+              <select id="apiSampler"><option value="">默认 (euler)</option></select>
+            </div>
+            <div class="row"><span class="k">调度器</span>
+              <select id="apiScheduler"><option value="">默认 (simple)</option></select>
+            </div>
+          </div>
+          <p class="hint tight">留空或 0 = 用工作流默认值。这里展开的是 Moss 工作流里没有单独展示的采样参数。</p>
+        </div>
+      </section>
+
+      <div class="cell full grp-wide">
+          <div class="actions">
+            <button class="btn primary" id="btnApiWrite">写提示词</button>
+            <button class="btn ghost" id="btnApiRender">写词并出图</button>
+          </div>
+
+          <div class="progress" id="apiProgress" hidden>
+            <div class="bar"><i id="apiBarFill"></i></div>
+            <span id="apiProgressText">0 / 0</span>
+          </div>
+
+          <div class="runbar" id="runBar" hidden>
+            <div class="runbar-top">
+              <span class="runbar-dot"></span>
+              <span id="runPhase">准备中</span>
+              <button class="mini danger" id="btnCancelRun">中断</button>
+            </div>
+            <div class="runbar-track"><i id="runBarFill"></i></div>
+            <div class="runbar-meta">
+              <span id="runSteps"></span>
+              <span id="runElapsed"></span>
+              <span id="runEta"></span>
+            </div>
+          </div>
+
+          <!-- 排队：列表在折叠头上方，点折叠头向上展开 -->
+          <div class="runqueue" id="runQueuePanel" hidden></div>
+          <button class="rq-toggle" id="rqToggle" hidden type="button"
+                  aria-expanded="false" aria-controls="runQueuePanel">
+            <span class="rq-t-dot"></span>
+            <span class="rq-t-label">排队</span>
+            <span class="rq-t-count" id="rqCount">0</span>
+            <span class="rq-t-caret">▴</span>
+          </button>
+        </div>
+      </div></div>
+    </section>
+
+    <!-- ======================= 结果区 ======================= -->
+    <section class="results">
+      <div class="results-head">
+        <h2 id="resultsTitle">结果</h2>
+        <div class="status" id="status" title="ComfyUI 连接状态">
+          <span class="dot"></span><span id="statusText">连接中</span>
+        </div>
+        <div class="tools">
+          <button class="mini" id="btnPreviewReq">API 文本</button>
+          <button class="mini" id="copyAll">复制全部</button>
+          <button class="mini" id="clearAll">清空</button>
+        </div>
+      </div>
+
+      <!-- 日期筛选工具栏：月 / 周 / 日，选中后卡片与提示词一起过滤，
+           删除按钮会二次确认后删掉该范围内的图片文件 + 卡片。 -->
+      <div class="datebar" id="dateBar">
+        <span class="datebar-label">日期</span>
+        <select id="datePeriod" title="筛选粒度">
+          <option value="all">全部</option>
+          <option value="month">按月</option>
+          <option value="week">按周</option>
+          <option value="day">按日</option>
+        </select>
+        <select id="datePick" title="选择具体的月 / 周 / 天" disabled>
+          <option value="">— 全部 —</option>
+        </select>
+        <span class="datebar-count" id="dateCount"></span>
+        <button class="mini danger" id="btnDeleteRange" disabled
+                title="删除当前筛选范围内的全部卡片与图片文件">删除所选</button>
+      </div>
+
+      <div class="reqblock" id="reqBlock" hidden>
+        <div class="reqhead">
+          <span class="reqtitle">发给 API 的文本</span>
+          <div class="reqtabs">
+            <button class="reqtab active" data-part="user">用户消息<span id="reqLenUser"></span></button>
+            <button class="reqtab" data-part="system">系统提示词<span id="reqLenSys"></span></button>
+            <button class="reqtab" data-part="main">构图版结果<span id="reqLenMain"></span></button>
+            <button class="reqtab" data-part="head">大头版结果<span id="reqLenHead"></span></button>
+          </div>
+          <button class="mini" id="btnCopyReq">复制</button>
+          <button class="mini" id="btnCloseReq">收起</button>
+        </div>
+        <div class="reqpanes">
+          <div class="reqleft">
+            <div class="blocks" id="blockList"></div>
+            <p class="hint tight" id="apiNotes"></p>
+          </div>
+          <div class="reqright">
+            <textarea id="apiRequestView" rows="4" readonly></textarea>
+          </div>
+        </div>
+        <div class="reqgrip" id="reqGrip" title="拖动调整高度"></div>
+      </div>
+
+      <div class="grid" id="grid">
+        <div class="empty" id="empty">
+          <p>选好参数，点「抽提示词」或「写提示词」。</p>
+          <p class="muted">词库模式本地组合；API 模式按四档设计方法现场设计。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 日期范围批量删除：二次确认 -->
+<div class="modal" id="confirmModal" hidden>
+  <div class="modal-card narrow">
+    <header class="modal-head">
+      <div>
+        <h3 id="confirmTitle">确认删除</h3>
+        <p class="modal-sub" id="confirmSub"></p>
+      </div>
+      <button class="modal-x" id="btnConfirmClose">✕</button>
+    </header>
+    <p class="confirm-body" id="confirmBody"></p>
+    <footer class="modal-foot">
+      <span class="modal-note" id="confirmNote"></span>
+      <div class="tools">
+        <button class="mini" id="btnConfirmCancel">取消</button>
+        <button class="btn danger sm" id="btnConfirmOk">确认删除</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<!-- 设计方法编辑器 -->
+<div class="modal" id="methodModal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <div>
+        <h3 id="methodTitle">设计方法</h3>
+        <p class="modal-sub" id="methodSub"></p>
+      </div>
+      <button class="modal-x" id="btnMethodClose">✕</button>
+    </header>
+    <div class="modal-tabs" id="methodTabs"></div>
+    <textarea id="methodText" spellcheck="false"></textarea>
+    <footer class="modal-foot">
+      <span class="modal-note" id="methodNote"></span>
+      <div class="tools">
+        <button class="mini" id="btnMethodRevert">撤销修改</button>
+        <button class="btn primary sm" id="btnMethodSave">保存</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<!-- 改写构图 -->
+<div class="modal" id="rewriteModal" hidden>
+  <div class="modal-card narrow">
+    <header class="modal-head">
+      <div>
+        <h3>改写构图</h3>
+        <p class="modal-sub" id="rewriteSub"></p>
+      </div>
+      <button class="modal-x" id="btnRewriteClose">✕</button>
+    </header>
+    <div class="rewrite-body">
+      <label class="fld"><span>目标构图</span>
+        <select id="rewriteTarget">
+          <option value="headshot">大头照</option>
+          <option value="half_body">半身照</option>
+          <option value="full_body">全身照</option>
+          <option value="front_back">正反全身照</option>
+          <option value="headshot_plus_front_back">横向大头+正反全身照</option>
+        </select>
+      </label>
+      <p class="hint" id="rewriteInfo"></p>
+      <textarea id="rewriteText" rows="9"></textarea>
+    </div>
+    <footer class="modal-foot">
+      <span class="modal-note" id="rewriteNote"></span>
+      <div class="tools">
+        <button class="mini" id="btnRewritePreview">预览改写</button>
+        <button class="btn primary sm" id="btnRewriteApply">应用</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <img id="lightboxImg" alt="">
+  <button class="lb-close" id="lightboxClose">✕</button>
+  <div class="lb-cap" id="lightboxCap"></div>
+</div>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
