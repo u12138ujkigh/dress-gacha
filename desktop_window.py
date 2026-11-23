@@ -126,7 +126,25 @@ def main():
     result = migrate_localstorage()
     print("[desktop] localStorage migration:", result, flush=True)
 
-    import webview as webview_mod
+    # 启动前依赖自检：缺 pywebview 时给清晰指引，而不是静默失败/留下孤儿进程。
+    # （server.py 只用标准库，不在此检查；窗口启动器是唯一需要第三方包的地方。）
+    try:
+        import webview as webview_mod
+    except ImportError as exc:
+        msg = (
+            "缺少原生窗口依赖 pywebview，窗口无法启动。\n"
+            "安装方式（隔离环境）：\n"
+            "  \"%s\" -m pip install -r \"%s\"\n"
+            "原始错误：%s\n" % (sys.executable, os.path.join(APP, "requirements.txt"), exc)
+        )
+        # 写日志 + 弹控制台提示，即使从 pythonw 无控制台启动也有据可查
+        try:
+            with open(os.path.join(APP, "data", "desktop_window.err"), "a", encoding="utf-8") as fh:
+                fh.write(msg + "\n")
+        except Exception:
+            pass
+        sys.stderr.write(msg)
+        raise
     webview = webview_mod
 
     # REMOTE_DEBUGGING_PORT 在 create_window 创建 browser 时读取，必须提前设。

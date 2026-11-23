@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse, quote
 
 from engine import comfy, config, composer, api_writer, moss_workflow
 from engine import design, taxonomy
+from engine import applog
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(ROOT, "web")
@@ -400,6 +401,27 @@ def _opt_int_plain(v):
         return None
 
 
+def guard(route_fn):
+    """请求级异常兜底：任何 handler 漏出的异常都写 app.log，不再静默消失。
+
+    从 pythonw 无控制台启动时，BaseHTTPRequestHandler 默认只往 stderr 打印，
+    用户看不到 —— 这正是过去"打不开/没反应"难排查的原因。这里统一落盘。
+    """
+    def _wrapped(self, *args, **kwargs):
+        try:
+            return route_fn(self, *args, **kwargs)
+        except (BrokenPipeError, ConnectionResetError):
+            return None   # 客户端断开，属正常，不记日志
+        except Exception as exc:
+            applog.log_exc("HTTP %s %s" % (getattr(self, "command", "?"), self.path), exc)
+            try:
+                self._json({"ok": False, "error": str(exc)[:200]}, 500)
+            except Exception:
+                pass
+            return None
+    return _wrapped
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "dress-gacha/1.0"
     # HTTP/1.0 closes the socket after every response, which keeps a browser
@@ -466,6 +488,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     # ---------------------------------------------------------------- routes
+    @guard
     def do_GET(self):
         u = urlparse(self.path)
         p = u.path
@@ -660,6 +683,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json({"error": "not found", "path": p}, 404)
 
+    @guard
     def do_POST(self):
         p = urlparse(self.path).path
         try:
@@ -1192,9 +1216,20 @@ def _heartbeat_watch():
         os._exit(0)
 
 
+def _thread_excepthook(args):
+    """后台 worker 线程里漏出的异常也落盘（不会冒泡到 HTTP guard）。"""
+    applog.log_exc("后台线程崩溃: %s" % getattr(args.thread, "name", "?"), args.exc_value)
+
+
 def main():
     global SERVER
+    # 全局异常兜底：HTTP 路由走 guard 装饰器，线程走 excepthook，
+    # 从此 pythonw 无控制台启动也不会有"静默失败查不到"的情况。
+    threading.excepthook = _thread_excepthook
+    applog.info("server starting")
     os.makedirs(OUT, exist_ok=True)
+    # 后台预热 comfyui 模型缓存（不阻塞启动，让磁盘镜像跟上最新模型列表）
+    api_writer.prewarm_comfyui_models()
     models = config.discover()
     print("=" * 64)
     print("dress-gacha  ->  http://%s:%d" % (HOST, PORT))

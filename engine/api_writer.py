@@ -22,6 +22,7 @@ from . import config as _CFG
 from . import design as D
 from . import taxonomy as _TAX
 from . import template_guard as _TG
+from . import applog as _LOG
 
 OFM_BASE = os.environ.get("OFM_BASE", "http://127.0.0.1:18899")
 OFM_KEY = os.environ.get("OFM_KEY", "")
@@ -985,6 +986,32 @@ HEAD_PROMPT_RULE = (
     "[本次人物的妆容皮肤][本次人物的颈饰与领口]。-"
 )
 
+# 可编辑的大头规则文件：rules/head_prompt.txt。改完即生效，无需改代码/重启。
+_RULES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rules")
+_HEAD_RULE_FILE = os.path.join(_RULES_DIR, "head_prompt.txt")
+_head_rule_cache = {"text": None, "mtime": None}
+
+
+def load_head_prompt_rule() -> str:
+    """读 rules/head_prompt.txt（按 mtime 缓存，热加载）；缺失/出错回退内置常量。"""
+    try:
+        mtime = os.path.getmtime(_HEAD_RULE_FILE)
+        if _head_rule_cache["text"] is not None and _head_rule_cache["mtime"] == mtime:
+            return _head_rule_cache["text"]
+        with open(_HEAD_RULE_FILE, "r", encoding="utf-8") as fh:
+            text = fh.read().strip()
+        if not text:
+            return HEAD_PROMPT_RULE
+        _head_rule_cache["text"] = text
+        _head_rule_cache["mtime"] = mtime
+        _LOG.info("大头规则已从 rules/head_prompt.txt 热加载 (%d 字)" % len(text))
+        return text
+    except FileNotFoundError:
+        return HEAD_PROMPT_RULE
+    except Exception as e:
+        _LOG.warn("读取大头规则文件失败，使用内置规则: %s" % e)
+        return HEAD_PROMPT_RULE
+
 
 def _dedupe_repeats(text: str, min_unit: int = 30, repeats: int = 3) -> str:
     """Cut a generation that fell into a repetition loop.
@@ -1291,7 +1318,7 @@ def build_prompt(brief: str, tier: str = "normal", style="random",
     # yields both the composition version and the headshot version.
     out.add(_PB.Block(
         key="head_prompt", label="大头提示词",
-        channel=_PB.SYSTEM, text=HEAD_PROMPT_RULE, origin="固定",
+        channel=_PB.SYSTEM, text=load_head_prompt_rule(), origin="固定",
     ))
 
     # The brief outranks every other option. The precedence rule comes FIRST so
@@ -1857,13 +1884,18 @@ def _run_lanes(system: str, user: str, model: str = "", timeout: float = 180,
                               tier, style_key, style_zh, visual_style, composition)
         except _RateLimited as e:
             last = e
+            _LOG.warn("写词网关限流: %s" % gw)
             continue
         except _Refused as e:
             last = e
+            _LOG.warn("写词网关拒绝: %s" % gw)
             continue
         except Exception as e:
             last = e
+            _LOG.warn("写词网关异常: %s model=%s -> %s" % (gw, mid, str(e)[:120]))
             continue
+    if last:
+        _LOG.log_exc("写词所有通道失败，最后错误来自 %s" % gw, last)
     raise last or RuntimeError("所有通道都失败了")
 
 
@@ -2466,6 +2498,21 @@ def _comfyui_clip_names(timeout: float = 20) -> list:
     if names:
         _save_comfyui_names_file(names)
     return names
+
+
+def prewarm_comfyui_models(timeout: float = 20):
+    """后台预热：启动时刷新 ComfyUI text_encoders 缓存到磁盘。
+
+    不阻塞启动；有缓存时页面已能秒显，此函数只负责让缓存跟上 ComfyUI 的
+    最新模型列表。失败静默（ComfyUI 可能还没开），下次探测会再试。
+    """
+    def _do():
+        try:
+            names = _comfyui_clip_names(timeout)
+            _LOG.info("模型预热完成: %d 个 comfyui text_encoders" % len(names))
+        except Exception as e:
+            _LOG.warn("模型预热跳过（ComfyUI 未就绪?）: %s" % str(e)[:120])
+    threading.Thread(target=_do, daemon=True).start()
 
 
 def comfyui_local_models(timeout: float = 20) -> list[dict]:

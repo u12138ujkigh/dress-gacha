@@ -1169,7 +1169,6 @@ dress-gacha/
 │   └── app.js
 ├── data/outputs/          旧归档目录（历史图已复制到新位置，原件保留）
 │                          现统一写入 E:\Comfy-Desktop\ComfyUI-Shared\output\1图片\正反面和大头
-├── cdp.py                 CDP 客户端（验证用）
 ├── 启动.bat               双击启动
 └── README.md              参考图拆解 + 工作流 + 使用说明
 ```
